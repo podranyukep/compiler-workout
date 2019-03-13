@@ -2,6 +2,7 @@
    The library provides "@type ..." syntax extension and plugins like show, etc.
 *)
 open GT
+open List
 
 (* Opening a library for combinator-based syntax analysis *)
 open Ostap.Combinators
@@ -37,6 +38,30 @@ module Expr =
     *)
     let update x v s = fun y -> if x = y then v else s y
 
+    (* Some helping code for further work:
+    boolToInt converts boolean b to integer
+    intToBool converts integer i to boolean
+    *)  
+    let boolToInt b = if b then 1 else 0
+    let intToBool i = i != 0
+
+
+    (* Possible operations *)
+    let operation oper leftExpr rightExpr = match oper with
+        |"!!" -> boolToInt (( || ) (intToBool leftExpr) (intToBool rightExpr))
+        |"&&" -> boolToInt (( && ) (intToBool leftExpr) (intToBool rightExpr))
+        |"==" -> boolToInt (( == ) leftExpr rightExpr)
+        |"!=" -> boolToInt (( != ) leftExpr rightExpr)
+        |"<=" -> boolToInt (( <= ) leftExpr rightExpr)
+        |"<" -> boolToInt (( <  ) leftExpr rightExpr)
+        |">=" -> boolToInt (( >= ) leftExpr rightExpr)
+        |">" -> boolToInt (( >  ) leftExpr rightExpr)
+        |"+" -> ( +  ) leftExpr rightExpr
+        |"-" -> ( -  ) leftExpr rightExpr
+        |"*" -> ( *  ) leftExpr rightExpr
+        |"/" -> ( /  ) leftExpr rightExpr
+        |"%" -> ( mod ) leftExpr rightExpr
+    
     (* Expression evaluator
 
           val eval : state -> t -> int
@@ -44,7 +69,11 @@ module Expr =
        Takes a state and an expression, and returns the value of the expression in 
        the given state.
      *)                                                       
-    let eval _ _ = failwith "Not yet implemented"
+    let rec eval state expr = match expr with
+    |Const cName -> cName
+    |Var varName -> state varName
+    |Binop (oper, leftExpr, rightExpr) -> 
+        operation oper (eval state leftExpr) (eval state rightExpr)
 
     (* Expression parser. You can use the following terminals:
 
@@ -52,8 +81,24 @@ module Expr =
          DECIMAL --- a decimal constant [0-9]+ as a string
                                                                                                                   
     *)
-    ostap (                                      
-      parse: empty {failwith "Not yet implemented"}
+    let do_Bin oper =  ostap(- $(oper)), (fun x y -> Binop (oper, x, y))
+    
+    ostap (
+          expr:
+        !(Ostap.Util.expr
+            (fun x -> x)
+            (Array.map (fun (a, ops) -> a, List.map do_Bin ops)
+                [|
+                `Lefta, ["!!"];
+                        `Lefta, ["&&"];
+                        `Nona , ["=="; "!="; "<="; ">="; "<"; ">"];
+                        `Lefta, ["+"; "-"];
+                        `Lefta, ["*"; "/"; "%"];
+                |]
+            )
+            primary
+            );
+    primary: x:IDENT {Var x} | c:DECIMAL {Const c} | -"(" expr -")"
     )
     
   end
@@ -78,11 +123,20 @@ module Stmt =
 
        Takes a configuration and a statement, and returns another configuration
     *)
-    let eval _ _ = failwith "Not yet implemented"
+    let rec eval (s, i, o) p = match p with
+            | Read variable_name  -> (Expr.update variable_name  (hd i) s, tl i, o)
+            | Write expression   -> (s, i, o @ [Expr.eval s expression])
+            | Assign (variable_name, expression  ) -> (Expr.update variable_name (Expr.eval s expression ) s, i, o)
+            | Seq (e1, e2)  -> eval (eval (s, i, o) e1) e2;;
 
     (* Statement parser *)
     ostap (
-      parse: empty {failwith "Not yet implemented"}
+      stmt:
+                x:IDENT ":=" e:!(Expr.expr) {Assign(x, e)}
+                | "read" "(" x:IDENT ")" {Read x}
+                | "write" "(" e:!(Expr.expr) ")" {Write e};
+
+          parse: s:stmt ";" rest:parse {Seq(s, rest)} | stmt
     )
       
   end

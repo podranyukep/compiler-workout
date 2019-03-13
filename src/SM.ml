@@ -1,5 +1,7 @@
 open GT       
 open Language
+open List
+
        
 (* The type for the stack machine instructions *)
 @type insn =
@@ -24,7 +26,17 @@ type config = int list * Stmt.config
 
    Takes a configuration and a program, and returns a configuration as a result
 *)                         
-let rec eval conf prog = failwith "Not yet implemented"
+let rec eval cfg prg =
+  let step (st, (s, i, o)) p = match p with
+    | BINOP op -> (Language.Expr.operation op (hd (tl st)) (hd st) :: (tl (tl st)), (s, i, o))
+    | CONST n  -> (n :: st, (s, i, o))
+    | READ     -> (hd i :: st, (s, tl i, o))
+    | WRITE    -> (tl st, (s, i, o @ [hd st]))
+    | LD variable_name    -> (s variable_name :: st, (s, i, o))
+    | ST variable_name    -> (tl st, (Language.Expr.update variable_name (hd st) s, i, o))
+  in match prg with
+    | [] -> cfg
+    | p :: ps -> eval (step cfg p) ps
 
 (* Top-level evaluation
 
@@ -32,7 +44,7 @@ let rec eval conf prog = failwith "Not yet implemented"
 
    Takes a program, an input stream, and returns an output stream this program calculates
 *)
-let run p i = let (_, (_, _, o)) = eval ([], (Expr.empty, i, [])) p in o
+let run p i = let (_, (_, _, o)) = eval ([], (Language.Expr.empty, i, [])) p in o
 
 (* Stack machine compiler
 
