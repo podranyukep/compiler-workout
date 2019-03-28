@@ -79,15 +79,6 @@ let show instr =
 (* Opening stack machine to use instructions without fully qualified names *)
 open SM
 
-(* Symbolic stack machine evaluator
-
-     compile : env -> prg -> env * instr list
-
-   Take an environment, a stack machine program, and returns a pair --- the updated environment and the list
-   of x86 instructions
-*)
-let compile _ = failwith "Not Implemented Yet"
-
 (* A set of strings *)           
 module S = Set.Make (String)
 
@@ -104,14 +95,14 @@ class env =
     (* allocates a fresh position on a symbolic stack *)
     method allocate =    
       let x, n =
-	let rec allocate' = function
-	| []                            -> ebx     , 0
-	| (S n)::_                      -> S (n+1) , n+1
-	| (R n)::_ when n < num_of_regs -> R (n+1) , stack_slots
+    let rec allocate' = function
+    | []                            -> ebx     , 0
+    | (S n)::_                      -> S (n+1) , n+1
+    | (R n)::_ when n < num_of_regs -> R (n+1) , stack_slots
         | (M _)::s                      -> allocate' s
-	| _                             -> S 0     , 1
-	in
-	allocate' stack
+    | _                             -> S 0     , 1
+    in
+    allocate' stack
       in
       x, {< stack_slots = max n stack_slots; stack = x::stack >}
 
@@ -134,6 +125,79 @@ class env =
     method globals = S.elements globals
   end
 
+(* Symbolic stack machine evaluator
+     compile : env -> prg -> env * instr list
+   Take an environment, a stack machine program, and returns a pair --- the updated environment and the list
+   of x86 instructions
+*)
+
+let operation_name op = match op with
+  | "<"  -> "l"
+  | "<=" -> "le"
+  | ">"  -> "g"
+  | ">=" -> "ge"
+  | "==" -> "e"
+  | "!=" -> "ne"
+  | _    -> failwith ("Unknown bool operator")
+
+let rec compile_binop env op : env * instr list = 
+  let zero opnd = Binop ("^", opnd, opnd) in
+  let compare op l r space = [zero eax; Binop ("cmp", r, l); Set (operation_name op, "%al"); Mov (eax, space)] in
+  let r, l, env  = env#pop2 in
+  let space, env = env#allocate in
+  let instr_list = match op with
+    | "+" 
+    | "-" 
+    | "*"  -> (match (l, r) with
+                | (S _, S _) -> [Mov (l, eax); Binop (op, r, eax); Mov (eax, space)]
+                | _          -> if space = l then 
+                                    [Binop (op, r, l)] 
+                                else 
+                                    [Binop (op, r, l); Mov (l, space)]
+              )
+    | "<=" 
+    | "<" 
+    | ">=" 
+    | ">" 
+    | "==" 
+    | "!=" -> (match (l, r) with
+                | (S _, S _) -> [Mov (l, edx)] @ compare op edx r space
+                | _          -> compare op l r space
+              )
+    | "/"  -> [Mov (l, eax); zero edx; Cltd; IDiv r; Mov (eax, space)]        
+    | "%"  -> [Mov (l, eax); zero edx; Cltd; IDiv r; Mov (edx, space)]
+    | "!!" -> [zero eax; Mov (l, edx); Binop ("!!", r, edx); Set ("nz", "%al"); Mov (eax, space)]
+    | "&&" -> [zero eax; zero edx; Binop ("cmp", L 0, l); Set ("ne", "%al");
+                                   Binop ("cmp", L 0, r); Set ("ne", "%dl");
+                                   Binop ("&&", edx, eax); Mov (eax, space)
+                  ]
+    | _ -> failwith ("Unknown bin operand")
+  in env, instr_list
+
+let rec compile env prg : env * instr list = match prg with
+    | [] -> env, []
+    | ins::tail -> 
+    let changed_env, instr_list = (match ins with
+        | BINOP op -> compile_binop env op
+        | CONST x  -> let space, new_env = env#allocate       in 
+                    new_env, [Mov (L x, space)]
+        | READ     -> let space, new_env = env#allocate       in 
+                    new_env, [Call "Lread"; Mov (eax, space)]
+        | WRITE    -> let var  , new_env = env#pop            in 
+                    new_env, [Push var; Call "Lwrite"; Pop eax]
+        | LD x     -> let space, new_env = env#allocate       in
+                    let var            = env#loc x          in 
+                    new_env, [Mov ((M var), space)]
+        | ST x     -> let value, new_env = (env#global x)#pop in
+                    let var            = env#loc x          in 
+                    new_env, [Mov (value, (M var))]
+        | LABEL l  -> env, [Label l]
+        | JMP l    -> env, [Jmp l]
+        | CJMP (znz, l) -> let h, env = env#pop in env, [Binop ("cmp", L 0, h); CJmp (znz, l)]
+    ) in
+    let result_env, result_inst_list = compile changed_env tail in
+    result_env, (instr_list @ result_inst_list)
+  
 (* Compiles a unit: generates x86 machine code for the stack program and surrounds it
    with function prologue/epilogue
 *)
