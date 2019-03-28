@@ -55,7 +55,11 @@ module Expr =
         +, -                 --- addition, subtraction
         *, /, %              --- multiplication, division, reminder
     *)
-      
+    
+    (* Update: non-destructively "modifies" the state s by binding the variable x to value v and returns the new state.
+    *)
+    let update x v s = fun y -> if x = y then v else s y
+    
     (* Expression evaluator
 
           val eval : state -> t -> int
@@ -97,20 +101,20 @@ module Expr =
     *)
     ostap (                                      
       parse:
-	  !(Ostap.Util.expr 
+      !(Ostap.Util.expr 
              (fun x -> x)
-	     (Array.map (fun (a, s) -> a, 
+         (Array.map (fun (a, s) -> a, 
                            List.map  (fun s -> ostap(- $(s)), (fun x y -> Binop (s, x, y))) s
                         ) 
               [|                
-		`Lefta, ["!!"];
-		`Lefta, ["&&"];
-		`Nona , ["=="; "!="; "<="; "<"; ">="; ">"];
-		`Lefta, ["+" ; "-"];
-		`Lefta, ["*" ; "/"; "%"];
+        `Lefta, ["!!"];
+        `Lefta, ["&&"];
+        `Nona , ["=="; "!="; "<="; "<"; ">="; ">"];
+        `Lefta, ["+" ; "-"];
+        `Lefta, ["*" ; "/"; "%"];
               |] 
-	     )
-	     primary);
+         )
+         primary);
       
       primary:
         n:DECIMAL {Const n}
@@ -150,11 +154,53 @@ module Stmt =
 
        which returns a list of formal parameters and a body for given definition
     *)
-    let rec eval _ = failwith "Not Implemented Yet"
-                                
+    let rec eval env (s, i, o) t =
+        match t with
+            | Read x -> (match i with
+                | z :: i_rest -> (State.update x z s, i_rest, o)
+                | _           -> failwith "Input read fail")
+            | Write   e             -> (s, i, o @ [Expr.eval s e])
+            | Assign (x, e)         -> (State.update x (Expr.eval s e) s, i, o)
+            | Seq    (s1, s2) -> 
+                let stmt = eval env (s, i, o) s1
+                in eval env stmt s2
+            | Skip            -> (s, i, o)
+            | If (e, thenStmt, elseStmt) ->
+                if (Expr.eval s e) != 0 then eval env (s, i, o) thenStmt else eval env (s, i, o) elseStmt
+            | While (e, wStmt)  ->
+                let r = Expr.eval s e in
+                if r != 0 then eval env (eval env (s, i, o) wStmt) (While (e, wStmt)) else (s, i, o)
+            | Repeat (ruStmt, e)  ->
+                let (s, i, o) = eval env (s, i, o) ruStmt in
+                let r = Expr.eval s e in
+                if r != 0 then (s, i ,o) else eval env (s, i, o) t
+            | Call (name, args) ->
+                let (arg_names, locals, body) = env#definition name in
+                let args = List.combine arg_names (List.map (Expr.eval s) args) in
+                let state = State.push_scope s (arg_names @ locals) in
+                let fun_env_w_args = List.fold_left (fun s (name, value) -> State.update name value s) state args in
+                let (new_s, i, o) = eval env (fun_env_w_args, i, o) body in
+                (State.drop_scope new_s s, i, o)
     (* Statement parser *)
     ostap (                                      
-      parse: empty {failwith "Not yet implemented"}
+      line:
+        "read" "(" x:IDENT ")"         {Read x}
+        | "write" "(" e:!(Expr.parse) ")" {Write e}
+        | x:IDENT ":=" e:!(Expr.parse)    {Assign (x, e)}
+        | "if" e:!(Expr.parse) "then" thenStmt:parse "else" elseStmt:parse "fi" {If (e, thenStmt, elseStmt)}
+        | "if" e:!(Expr.parse) "then" thenStmt:parse "fi" {If (e, thenStmt, Skip)}
+        | "if" e:!(Expr.parse) "then" thenStmt:parse elifStmt:elif {If (e, thenStmt, elifStmt)}
+        | "skip" {Skip}
+        | "while" e:!(Expr.parse) "do" wStmt:parse "od" {While (e, wStmt)}
+        | "repeat" ruStmt:parse "until" e:!(Expr.parse) {Repeat (ruStmt, e)}
+        | "for" e1:parse "," e2:!(Expr.parse) "," e3:parse "do" s:parse "od" {Seq (e1, While (e2, Seq(s, e3)))}
+        | name:IDENT "(" args:(!(Expr.parse))* ")" {Call (name, args)};
+      parse:
+        l:line ";" rest:parse {Seq (l, rest)} | line;
+      elif:
+        "elif" e:!(Expr.parse) "then" thenStmt:parse "else" elseStmt:parse "fi" {If (e, thenStmt, elseStmt)}
+        | "elif" e:!(Expr.parse) "then" thenStmt:parse "fi" {If (e, thenStmt, Skip)}
+        | "elif" e:!(Expr.parse) "then" thenStmt:parse elifStmt:elif {If (e, thenStmt, elifStmt)}
     )
       
   end
@@ -167,7 +213,13 @@ module Definition =
     type t = string * (string list * string list * Stmt.t)
 
     ostap (                                      
-      parse: empty {failwith "Not yet implemented"}
+      parse: "fun" name:IDENT "(" args:(IDENT)* ")" local:(%"local" (IDENT)*)? "{" body:!(Stmt.parse) "}"
+        {
+            let local = match local with
+            | Some x -> x
+            | _ -> [] in
+            name, (args, local, body)
+        }
     )
 
   end
