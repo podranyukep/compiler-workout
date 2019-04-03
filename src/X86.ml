@@ -158,65 +158,77 @@ class env =
    of x86 instructions
 *)
 
-let operation_name op = match op with
-  | "<"  -> "l"
-  | "<=" -> "le"
-  | ">"  -> "g"
-  | ">=" -> "ge"
-  | "==" -> "e"
-  | "!=" -> "ne"
-  | _    -> failwith ("Unknown bool operator")
+let rec compile_binop env op =
+    let set_zero operand = Binop("^", operand, operand) in
+    let operation_name op = (match op with
+          | "<"  -> "l"
+          | "<=" -> "le"
+          | ">"  -> "g"
+          | ">=" -> "ge"
+          | "==" -> "e"
+          | "!=" -> "ne") in
+    let compare op l r s = [set_zero eax; Binop ("cmp", r, l); Set (operation_name op, "%al"); Mov (eax, s)] in
+    let r, l, env = env#pop2 in
+    let s, env = env#allocate in
+    let asm = match op with
+        | "+" | "-" | "*" -> [Mov (l, eax); Binop (op, r, eax); Mov (eax, l)]
+        | "/" | "%"        -> let w = if op = "/" then eax else edx in
+                              [Mov (l, eax); set_zero edx; Cltd; IDiv r; Mov (w, s)]
+        | "<=" | "<" | ">="
+        | ">" | "==" | "!=" -> (match (l, r) with
+                                   | (S _, S _) -> [Mov (l, edx)] @ compare op edx r s
+                                   | _          -> compare op l r s
+                                )
+        | "!!" | "&&"       -> [set_zero eax; set_zero edx; Binop("cmp", L 0, l);
+                                Set ("nz", "%al"); Binop("cmp", L 0, r); Set ("nz", "%dl");
+                                Binop (op, edx, eax); Mov (eax, s)]
+    in env, asm
+
+let rec init_impl n = if n < 0 then [] else n :: init_impl (n - 1)
+let list_init n = List.rev (init_impl (n - 1))
 
 let rec compile env = function
   | []             -> env, []
-  | instr :: code' ->
-    let env, asm = 
-      match instr with
-      | CONST n  -> 
-        let s, env = env#allocate in
-        env, [Mov (L n, s)]
-      | READ     ->
-        let s, env = env#allocate in
-        env, [Call "Lread"; Mov (eax, s)]
-      | WRITE    ->
-        let s, env = env#pop in
-        env, [Push s; Call "Lwrite"; Pop eax]
-      | LD x     ->
-        let s, env = (env#global x)#allocate in
-        env, [Mov (M ("global_" ^ x), eax); Mov (eax, s)]
-      | ST x     ->
-        let s, env = (env#global x)#pop in
-        env, [Mov (s, eax); Mov (eax, M ("global_" ^ x))]
-      | BINOP op -> (
-        let y, x, env = env#pop2 in
-        let s, env = env#allocate in
-        match op with
-        | "+" | "-" | "*" -> env, [Mov (x, eax); Binop (op, y, eax); Mov (eax, s)]
-        | "/"             -> env, [Mov (x, eax); Cltd; IDiv y; Mov (eax, s)]
-        | "%"             -> env, [Mov (x, eax); Cltd; IDiv y; Mov (edx, s)]
-        | "<" | "<=" | ">" | ">=" | "==" | "!=" -> env, [
-                                                     Mov (x, edx);
-                                                     Binop ("^", eax, eax); 
-                                                     Binop ("cmp", y, edx);
-                                                     Set (operation_name op, "%al");
-                                                     Mov (eax, s) 
-                                                   ]
-        | "!!" | "&&" -> env, [
-                           Binop ("^", eax, eax);
-                           Binop ("^", edx, edx);
-                           Binop ("cmp", L 0, x);
-                           Set ("ne", "%al");
-                           Binop ("cmp", L 0, y);
-                           Set ("ne", "%dl");
-                           Binop (op, eax, edx);
-                           Mov (edx, s)
-                         ])
-      | LABEL l  -> env, [Label l]
-      | JMP l    -> env, [Jmp l]
-      | CJMP (znz, l) -> let h, env = env#pop in env, [Binop ("cmp", L 0, h); CJmp (znz, l)]
-    in
-    let env, asm' = compile env code' in
-    env, asm @ asm'
+  | instr :: code ->
+        let env, asm_instr = (match instr with
+            | BINOP op  -> compile_binop env op
+            | CONST n   -> let s, env = env#allocate in env, [Mov (L n, s)]
+            | WRITE     -> let v, env = env#pop      in env, [Push v; Call "Lwrite"; Pop eax]
+            | READ      -> let s, env = env#allocate in env, [Call "Lread"; Mov (eax, s)]
+            | LD x      -> let s, env = env#allocate in
+                           env, [Mov (env#loc x, eax); Mov (eax, s)]
+            | ST x      -> let s, env = (env#global x)#pop in
+                           env, [Mov (s, eax); Mov (eax, env#loc x)]
+            | LABEL l   -> env, [Label l]
+            | JMP l     -> env, [Jmp l]
+            | CJMP (z, l) ->
+              let s, env = env#pop in
+              env, [Binop ("cmp", L 0, s); CJmp (z, l)]
+            | CALL (name, arg_cnt, flag) ->
+                let (env, args) = List.fold_left (fun (env, args) _ -> let a, env = env#pop in (env, a::args)) (env, []) (list_init arg_cnt) in
+                let push_args = List.map (fun x -> Push x) args in
+                let (env, get_res) = if flag then let (a, env) = env#allocate in env, [Mov (eax, a)]
+                                     else env, [] in
+                env, push_args @ [Call name; Binop ("+", L (arg_cnt * word_size), esp)] @ get_res
+            | BEGIN (name, args, locals) ->
+                let push_regs = List.map (fun x -> Push (R x)) (list_init num_of_regs) in
+                let prolog = [Push ebp; Mov (esp, ebp)] in
+                let env = env#enter name args locals in
+                env, prolog @ push_regs @ [Binop ("-", M ("$" ^ env#lsize), esp)]
+            | END ->
+                let pop_regs = List.map (fun x -> Pop (R x)) (List.rev (list_init num_of_regs)) in
+                let meta = [Meta (Printf.sprintf "\t.set %s, %d" env#lsize (env#allocated * word_size))] in
+                let epilogue = [Mov (ebp, esp); Pop ebp; Ret] in
+                env, [Label env#epilogue] @ pop_regs @ epilogue @ meta
+            | RET flag ->
+                if flag
+                then let a,env = env#pop in
+                     env, [Mov (a, eax); Jmp env#epilogue]
+                else env, [Jmp env#epilogue]
+            | _ -> failwith  "Wrong instraction"
+            ) in
+        let env, asm_code = compile env code in
+        env, (asm_instr @ asm_code)
 
 (* Generates an assembler text for a program: first compiles the program into
    the stack code, then generates x86 assember code, then prints the assembler file
