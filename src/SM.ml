@@ -1,6 +1,5 @@
 open GT       
 open Language
-open List
        
 (* The type for the stack machine instructions *)
 @type insn =
@@ -33,36 +32,45 @@ type config = (prg * State.t) list * int list * Stmt.config
    environment is used to locate a label to jump to (via method env#labeled <label_name>)
 *)  
 
-let instructionEval (stack, (s, i, o)) instruction = match instruction with
+let instructionEval (controlSt, stack, (s, i, o)) instruction = match instruction with
     | BINOP op -> (match stack with
-        | y :: x :: tail -> ((Language.Expr.to_func op x y) :: tail, (s, i, o))
+        | y :: x :: tail -> (controlSt, (Expr.to_func op x y) :: tail, (s, i, o))
         | _              -> failwith "Not enough elements in stack")
-    | CONST z  -> (z :: stack, (s, i, o))
+    | CONST z  -> (controlSt, z :: stack, (s, i, o))
     | READ     -> (match i with
-        | z :: tail -> (z :: stack, (s, tail, o))
+        | z :: tail -> (controlSt, z :: stack, (s, tail, o))
         | _         -> failwith "Not enough elements in input")
     | WRITE    -> (match stack with
-        | z :: tail -> (tail, (s, i, o @ [z]))
+        | z :: tail -> (controlSt, tail, (s, i, o @ [z]))
         | _         -> failwith "Not enough elements in stack")
-    | LD x     -> ((s x) :: stack, (s, i, o))
+    | LD x     -> (controlSt, (State.eval s x) :: stack, (s, i, o))
     | ST x     -> (match stack with
-        | z :: tail -> (tail, (Language.Expr.update x z s, i, o))
+        | z :: tail -> (controlSt, tail, (State.update x z s, i, o))
         | _         -> failwith "Not enough elements in stack")
-    | LABEL l  ->  (stack, (s, i, o))
+    | LABEL l  ->  (controlSt, stack, (s, i, o))
                        
-let rec eval env conf prog = match prog with
+let rec eval env conf p = match p with
     | instr::tail -> (match instr with
-        | LABEL l        -> eval env conf tail
         | JMP l          -> eval env conf (env#labeled l)
-        | CJMP (znz, l)  -> (let (st, rem) = conf in match znz with
-            | "z"  -> (match st with
-                | z::st' -> if z <> 0 then (eval env (st', rem) tail) else (eval env (st', rem) (env#labeled l))
-                | []     -> failwith "CJMP with empty stack")
-                | "nz" -> (match st with
-                    | z::st' -> if z <> 0 then (eval env (st', rem) (env#labeled l)) else (eval env (st', rem) tail)
-                    | []     -> failwith "CJMP with empty stack"))
-        | _                 -> eval env (instructionEval conf instr) tail)
-        | []                -> conf  
+      | CJMP (znz, l)  -> (let (controlSt, st, rem) = conf in match znz with
+                            | "z"  -> (match st with
+                                      | z::st' -> if z <> 0 then (eval env (controlSt, st', rem) tail) else (eval env (controlSt, st', rem) (env#labeled l))
+                                      | []     -> failwith "CJMP with empty stack")
+                            | "nz" -> (match st with
+                                      | z::st' -> if z <> 0 then (eval env (controlSt, st', rem) (env#labeled l)) else (eval env (controlSt, st', rem) tail)
+                                      | []     -> failwith "CJMP with empty stack"))
+      | CALL l         -> let (controlSt, st, (s, i, o)) = conf in eval env ((tail, s) :: controlSt, st, (s, i, o)) (env#labeled l)
+      | END            -> let (controlSt, st, (s, i, o)) = conf in (match controlSt with
+                                                                    | (p', s')::cStTail -> let s'' = State.drop_scope s s' in eval env (cStTail, st, (s'', i, o)) p'
+                                                                    | _                 -> conf
+                                                                  )
+      | BEGIN (params, locals) -> let (controlSt, st, (s, i, o)) = conf in
+                                  let s' = State.push_scope s (params @ locals) in 
+                                  let calcParams = List.map (fun p -> ST p) params in
+                                  let conf' = eval env (controlSt, st, (s', i, o)) calcParams in
+                                  eval env conf' tail
+      | _                      -> eval env (instructionEval conf instr) tail)
+    | []          -> conf
 
 (* Top-level evaluation
 
@@ -122,10 +130,21 @@ let rec compileWithLabels p lastL =
             let (repeatBody, _) = compileWithLabels body lastL in
                 ([LABEL lLoop] @ repeatBody @ expr e @ [CJMP ("z", lLoop)]), false
         | Stmt.Skip -> [], false
-        | Stmt.Call (f, args) ->
-            List.concat (List.map (expr) (List.rev args)) @ [CALL f], false
+        | Stmt.Call (fName, argsE) -> let compiledArgs = List.flatten (List.map (expr) (List.rev argsE)) in
+                                compiledArgs @ [CALL fName], false
 
-let rec compile p =
+let compileP p =
   let label = labelGen#get in
   let compiled, used = compileWithLabels p label in
   compiled @ (if used then [LABEL label] else [])
+
+let compileDefs defs =
+  let compileDef (name, (params, locals, body)) = 
+    (let compiledBody = compileP body in
+    [LABEL name; BEGIN (params, locals)] @ compiledBody @ [END]) in
+  List.flatten (List.map compileDef defs)
+
+let rec compile (defs, main) =
+  let compiledMain = compileP main in
+  let compiledDefs = compileDefs defs in
+  compiledMain @ [END] @ compiledDefs
