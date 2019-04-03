@@ -82,75 +82,6 @@ let show instr =
 
 (* Opening stack machine to use instructions without fully qualified names *)
 open SM
-                                
-(* A set of strings *)           
-module S = Set.Make (String)
-
-(* Environment implementation *)
-let make_assoc l = List.combine l (List.init (List.length l) (fun x -> x))
-                     
-class env =
-  object (self)
-    val globals     = S.empty (* a set of global variables         *)
-    val stack_slots = 0       (* maximal number of stack positions *)
-    val stack       = []      (* symbolic stack                    *)
-    val args        = []      (* function arguments                *)
-    val locals      = []      (* function local variables          *)
-    val fname       = ""      (* function name                     *)
-                        
-    (* gets a name for a global variable *)
-    method loc x =
-      try S (- (List.assoc x args)  -  1)
-      with Not_found ->  
-        try S (List.assoc x locals) with Not_found -> M ("global_" ^ x)
-        
-    (* allocates a fresh position on a symbolic stack *)
-    method allocate =    
-      let x, n =
-	let rec allocate' = function
-	| []                            -> ebx     , 0
-	| (S n)::_                      -> S (n+1) , n+1
-	| (R n)::_ when n < num_of_regs -> R (n+1) , stack_slots
-        | (M _)::s                      -> allocate' s
-	| _                             -> S 0     , 1
-	in
-	allocate' stack
-      in
-      x, {< stack_slots = max n stack_slots; stack = x::stack >}
-
-    (* pushes an operand to the symbolic stack *)
-    method push y = {< stack = y::stack >}
-
-    (* pops one operand from the symbolic stack *)
-    method pop = let x::stack' = stack in x, {< stack = stack' >}
-
-    (* pops two operands from the symbolic stack *)
-    method pop2 = let x::y::stack' = stack in x, y, {< stack = stack' >}
-
-    (* registers a global variable in the environment *)
-    method global x  = {< globals = S.add ("global_" ^ x) globals >}
-
-    (* gets all global variables *)      
-    method globals = S.elements globals
-
-    (* gets a number of stack positions allocated *)
-    method allocated = stack_slots                                
-                                
-    (* enters a function *)
-    method enter f a l =
-      {< stack_slots = List.length l; stack = []; locals = make_assoc l; args = make_assoc a; fname = f >}
-
-    (* returns a label for the epilogue *)
-    method epilogue = Printf.sprintf "L%s_epilogue" fname
-                                     
-    (* returns a name for local size meta-symbol *)
-    method lsize = Printf.sprintf "L%s_SIZE" fname
-
-    (* returns a list of live registers *)
-    method live_registers =
-      List.filter (function R _ -> true | _ -> false) stack
-      
-  end
 
 (* Symbolic stack machine evaluator
      compile : env -> prg -> env * instr list
@@ -225,10 +156,79 @@ let rec compile env = function
                 then let a,env = env#pop in
                      env, [Mov (a, eax); Jmp env#epilogue]
                 else env, [Jmp env#epilogue]
-            | _ -> failwith  "Wrong instraction"
+            | _ -> failwith  "Wrong instruction"
             ) in
         let env, asm_code = compile env code in
         env, (asm_instr @ asm_code)
+                    
+(* A set of strings *)           
+module S = Set.Make (String)
+
+(* Environment implementation *)
+let make_assoc l = List.combine l (List.init (List.length l) (fun x -> x))
+                     
+class env =
+  object (self)
+    val globals     = S.empty (* a set of global variables         *)
+    val stack_slots = 0       (* maximal number of stack positions *)
+    val stack       = []      (* symbolic stack                    *)
+    val args        = []      (* function arguments                *)
+    val locals      = []      (* function local variables          *)
+    val fname       = ""      (* function name                     *)
+                        
+    (* gets a name for a global variable *)
+    method loc x =
+      try S (- (List.assoc x args)  -  1)
+      with Not_found ->  
+        try S (List.assoc x locals) with Not_found -> M ("global_" ^ x)
+        
+    (* allocates a fresh position on a symbolic stack *)
+    method allocate =    
+      let x, n =
+	let rec allocate' = function
+	| []                            -> ebx     , 0
+	| (S n)::_                      -> S (n+1) , n+1
+	| (R n)::_ when n < num_of_regs -> R (n+1) , stack_slots
+        | (M _)::s                      -> allocate' s
+	| _                             -> S 0     , 1
+	in
+	allocate' stack
+      in
+      x, {< stack_slots = max n stack_slots; stack = x::stack >}
+
+    (* pushes an operand to the symbolic stack *)
+    method push y = {< stack = y::stack >}
+
+    (* pops one operand from the symbolic stack *)
+    method pop = let x::stack' = stack in x, {< stack = stack' >}
+
+    (* pops two operands from the symbolic stack *)
+    method pop2 = let x::y::stack' = stack in x, y, {< stack = stack' >}
+
+    (* registers a global variable in the environment *)
+    method global x  = {< globals = S.add ("global_" ^ x) globals >}
+
+    (* gets all global variables *)      
+    method globals = S.elements globals
+
+    (* gets a number of stack positions allocated *)
+    method allocated = stack_slots                                
+                                
+    (* enters a function *)
+    method enter f a l =
+      {< stack_slots = List.length l; stack = []; locals = make_assoc l; args = make_assoc a; fname = f >}
+
+    (* returns a label for the epilogue *)
+    method epilogue = Printf.sprintf "L%s_epilogue" fname
+                                     
+    (* returns a name for local size meta-symbol *)
+    method lsize = Printf.sprintf "L%s_SIZE" fname
+
+    (* returns a list of live registers *)
+    method live_registers =
+      List.filter (function R _ -> true | _ -> false) stack
+      
+  end
 
 (* Generates an assembler text for a program: first compiles the program into
    the stack code, then generates x86 assember code, then prints the assembler file
