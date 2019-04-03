@@ -32,7 +32,45 @@ type config = (prg * State.t) list * int list * Expr.config
    Takes an environment, a configuration and a program, and returns a configuration as a result. The
    environment is used to locate a label to jump to (via method env#labeled <label_name>)
 *)                                                  
-let rec eval env ((cstack, stack, ((st, i, o) as c)) as conf) prg = failwith "Not implemented"
+let instructionEval (controlSt, stack, (s, i, o)) instruction = match instruction with
+    | BINOP op -> (match stack with
+        | y :: x :: tail -> (controlSt, (Expr.to_func op x y) :: tail, (s, i, o))
+        | _              -> failwith "Not enough elements in stack")
+    | CONST z  -> (controlSt, z :: stack, (s, i, o))
+    | READ     -> (match i with
+        | z :: tail -> (controlSt, z :: stack, (s, tail, o))
+        | _         -> failwith "Not enough elements in input")
+    | WRITE    -> (match stack with
+        | z :: tail -> (controlSt, tail, (s, i, o @ [z]))
+        | _         -> failwith "Not enough elements in stack")
+    | LD x     -> (controlSt, (State.eval s x) :: stack, (s, i, o))
+    | ST x     -> (match stack with
+        | z :: tail -> (controlSt, tail, (State.update x z s, i, o))
+        | _         -> failwith "Not enough elements in stack")
+    | LABEL l  ->  (controlSt, stack, (s, i, o))
+                       
+let rec eval env conf p = match p with
+    | instr::tail -> (match instr with
+        | JMP l          -> eval env conf (env#labeled l)
+      | CJMP (znz, l)  -> (let (controlSt, st, rem) = conf in match znz with
+                            | "z"  -> (match st with
+                                      | z::st' -> if z <> 0 then (eval env (controlSt, st', rem) tail) else (eval env (controlSt, st', rem) (env#labeled l))
+                                      | []     -> failwith "CJMP with empty stack")
+                            | "nz" -> (match st with
+                                      | z::st' -> if z <> 0 then (eval env (controlSt, st', rem) (env#labeled l)) else (eval env (controlSt, st', rem) tail)
+                                      | []     -> failwith "CJMP with empty stack"))
+      | CALL l         -> let (controlSt, st, (s, i, o)) = conf in eval env ((tail, s) :: controlSt, st, (s, i, o)) (env#labeled l)
+      | END            -> let (controlSt, st, (s, i, o)) = conf in (match controlSt with
+                                                                    | (p', s')::cStTail -> let s'' = State.drop_scope s s' in eval env (cStTail, st, (s'', i, o)) p'
+                                                                    | _                 -> conf
+                                                                  )
+      | BEGIN (params, locals) -> let (controlSt, st, (s, i, o)) = conf in
+                                  let s' = State.push_scope s (params @ locals) in 
+                                  let calcParams = List.map (fun p -> ST p) params in
+                                  let conf' = eval env (controlSt, st, (s', i, o)) calcParams in
+                                  eval env conf' tail
+      | _                      -> eval env (instructionEval conf instr) tail)
+    | []          -> conf
 
 (* Top-level evaluation
 
@@ -57,4 +95,56 @@ let run p i =
    Takes a program in the source language and returns an equivalent program for the
    stack machine
 *)
-let compile (defs, p) = failwith "Not implemented"
+let labelGen = object
+   val mutable freeLabel = 0
+   method get = freeLabel <- freeLabel + 1; "L" ^ string_of_int freeLabel
+end
+
+let rec compileWithLabels p lastL =
+    let rec expr = function
+    | Expr.Var   x          -> [LD x]
+    | Expr.Const n          -> [CONST n]
+    | Expr.Binop (op, x, y) -> expr x @ expr y @ [BINOP op]
+    in match p with
+        | Stmt.Seq (s1, s2)  -> (let newLabel = labelGen#get in
+                                    let (compiled1, used1) = compileWithLabels s1 newLabel in
+                                    let (compiled2, used2) = compileWithLabels s2 lastL in
+                                    (compiled1 @ (if used1 then [LABEL newLabel] else []) @ compiled2), used2)
+        | Stmt.Read x        -> [READ; ST x], false
+        | Stmt.Write e       -> (expr e @ [WRITE]), false
+        | Stmt.Assign (x, e) -> (expr e @ [ST x]), false
+        | Stmt.If (e, s1, s2) ->
+            let lElse = labelGen#get in
+            let (compiledS1, used1) = compileWithLabels s1 lastL in
+            let (compiledS2, used2) = compileWithLabels s2 lastL in
+                (expr e @ [CJMP ("z", lElse)]
+                @ compiledS1 @ (if used1 then [] else [JMP lastL]) @ [LABEL lElse]
+                @ compiledS2 @ (if used2 then [] else [JMP lastL])), true
+        | Stmt.While (e, body) ->
+            let lCheck = labelGen#get in
+            let lLoop = labelGen#get in
+            let (doBody, _) = compileWithLabels body lCheck in
+                ([JMP lCheck; LABEL lLoop] @ doBody @ [LABEL lCheck] @ expr e @ [CJMP ("nz", lLoop)]), false
+        | Stmt.Repeat (body, e) ->
+            let lLoop = labelGen#get in
+            let (repeatBody, _) = compileWithLabels body lastL in
+                ([LABEL lLoop] @ repeatBody @ expr e @ [CJMP ("z", lLoop)]), false
+        | Stmt.Skip -> [], false
+        | Stmt.Call (fName, argsE) -> let compiledArgs = List.flatten (List.map (expr) (List.rev argsE)) in
+                                compiledArgs @ [CALL fName], false
+
+let compileP p =
+  let label = labelGen#get in
+  let compiled, used = compileWithLabels p label in
+  compiled @ (if used then [LABEL label] else [])
+
+let compileDefs defs =
+  let compileDef (name, (params, locals, body)) = 
+    (let compiledBody = compileP body in
+    [LABEL name; BEGIN (params, locals)] @ compiledBody @ [END]) in
+  List.flatten (List.map compileDef defs)
+
+let rec compile (defs, main) =
+  let compiledMain = compileP main in
+  let compiledDefs = compileDefs defs in
+  compiledMain @ [END] @ compiledDefs

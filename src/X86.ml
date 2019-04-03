@@ -82,15 +82,6 @@ let show instr =
 
 (* Opening stack machine to use instructions without fully qualified names *)
 open SM
-
-(* Symbolic stack machine evaluator
-
-     compile : env -> prg -> env * instr list
-
-   Take an environment, a stack machine program, and returns a pair --- the updated environment and the list
-   of x86 instructions
-*)
-let compile env code = failwith "Not implemented"
                                 
 (* A set of strings *)           
 module S = Set.Make (String)
@@ -160,7 +151,73 @@ class env =
       List.filter (function R _ -> true | _ -> false) stack
       
   end
-  
+
+(* Symbolic stack machine evaluator
+     compile : env -> prg -> env * instr list
+   Take an environment, a stack machine program, and returns a pair --- the updated environment and the list
+   of x86 instructions
+*)
+
+let operation_name op = match op with
+  | "<"  -> "l"
+  | "<=" -> "le"
+  | ">"  -> "g"
+  | ">=" -> "ge"
+  | "==" -> "e"
+  | "!=" -> "ne"
+  | _    -> failwith ("Unknown bool operator")
+
+let rec compile env = function
+  | []             -> env, []
+  | instr :: code' ->
+    let env, asm = 
+      match instr with
+      | CONST n  -> 
+        let s, env = env#allocate in
+        env, [Mov (L n, s)]
+      | READ     ->
+        let s, env = env#allocate in
+        env, [Call "Lread"; Mov (eax, s)]
+      | WRITE    ->
+        let s, env = env#pop in
+        env, [Push s; Call "Lwrite"; Pop eax]
+      | LD x     ->
+        let s, env = (env#global x)#allocate in
+        env, [Mov (M ("global_" ^ x), eax); Mov (eax, s)]
+      | ST x     ->
+        let s, env = (env#global x)#pop in
+        env, [Mov (s, eax); Mov (eax, M ("global_" ^ x))]
+      | BINOP op -> (
+        let y, x, env = env#pop2 in
+        let s, env = env#allocate in
+        match op with
+        | "+" | "-" | "*" -> env, [Mov (x, eax); Binop (op, y, eax); Mov (eax, s)]
+        | "/"             -> env, [Mov (x, eax); Cltd; IDiv y; Mov (eax, s)]
+        | "%"             -> env, [Mov (x, eax); Cltd; IDiv y; Mov (edx, s)]
+        | "<" | "<=" | ">" | ">=" | "==" | "!=" -> env, [
+                                                     Mov (x, edx);
+                                                     Binop ("^", eax, eax); 
+                                                     Binop ("cmp", y, edx);
+                                                     Set (operation_name op, "%al");
+                                                     Mov (eax, s) 
+                                                   ]
+        | "!!" | "&&" -> env, [
+                           Binop ("^", eax, eax);
+                           Binop ("^", edx, edx);
+                           Binop ("cmp", L 0, x);
+                           Set ("ne", "%al");
+                           Binop ("cmp", L 0, y);
+                           Set ("ne", "%dl");
+                           Binop (op, eax, edx);
+                           Mov (edx, s)
+                         ])
+      | LABEL l  -> env, [Label l]
+      | JMP l    -> env, [Jmp l]
+      | CJMP (znz, l) -> let h, env = env#pop in env, [Binop ("cmp", L 0, h); CJmp (znz, l)]
+    in
+    let env, asm' = compile env code' in
+    env, asm @ asm'
+
 (* Generates an assembler text for a program: first compiles the program into
    the stack code, then generates x86 assember code, then prints the assembler file
 *)
