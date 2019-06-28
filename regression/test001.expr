@@ -1,5 +1,4 @@
 read (x);
-foreach x in [0...5]
-do
-	write(x)
-od
+read (y);
+z := x*y*3;
+write (z)

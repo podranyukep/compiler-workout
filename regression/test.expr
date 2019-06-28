@@ -1,0 +1,6 @@
+
+x := 15;
+foreach x in [0...5]
+do
+	write(x)
+od
