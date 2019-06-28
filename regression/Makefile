@@ -13,5 +13,3 @@ $(TESTS): %: %.expr
 
 clean:
 	rm -f *.s *~ *.log $(TESTS)
-	pushd expressions && make clean && popd
-	pushd deep-expressions && make clean && popd
