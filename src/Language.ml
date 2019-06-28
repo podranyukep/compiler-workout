@@ -139,7 +139,9 @@ module Stmt =
             | Skip                              -> (s, i, o)
             | If (e, thenStmt, elseStmt)        -> eval (s, i, o) (if Expr.intToBool (Expr.eval s e) then thenStmt else elseStmt)
             | While (e, wStmt)                  -> if Expr.intToBool (Expr.eval s e) then eval (eval (s, i, o) wStmt) stmt else (s, i, o)
-            | ForEach (x, e1, e2, b)            -> if (eval(e1) < eval(e2))  if Expr.intToBool (Expr.eval s e) then eval (eval (s, i, o) wStmt) stmt else (s, i, o)
+            | ForEach (x, e1, e2, b)            -> if Expr.eval s e1 <= Expr.eval s e2 then 
+			(*Expr.update x (Expr.eval s e1) s, i, o*)
+			eval (eval (s, i, o) b) stmt else (s, i, o)
             | RepeatUntil (ruStmt, e)           -> let (sNew, iNew, oNew) = eval (s, i, o) ruStmt in
             if not (Expr.intToBool (Expr.eval sNew e)) then eval (sNew, iNew, oNew) stmt else (sNew, iNew, oNew);;
                                
@@ -164,17 +166,23 @@ module Stmt =
         "while" e:!(Expr.expr) "do" body:parse "od" {While (e, body)};
       forStmt:
         "for" initStmt:stmt "," whileCond:!(Expr.expr) "," forStmt:stmt
-        "do" body:parse "od" {Seq (initStmt, While (whileCond, Seq (body, forStmt)))};
+        "do" body:parse "od" {
+
+			Seq (initStmt, While (whileCond, Seq (body, forStmt)))
+		};
       repeatUntilStmt:
         "repeat" body:parse "until" e:!(Expr.expr) {RepeatUntil (body, e)};
       foreach:
         "foreach" x:!(Expr.expr) "in [" e1:!(Expr.expr) "..." e2:!(Expr.expr) "]" 
-        "do" body:parse "od" {ForEach(x, e1, e2, body)};
+        "do" body:parse "od" {
+			ForEach(x, e1, e2, body);
+		};
       control:
         ifStmt
         | whileStmt
         | forStmt
         | repeatUntilStmt
+		| foreach
         | "skip" {Skip};
       stmt:
         simple
