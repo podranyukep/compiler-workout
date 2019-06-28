@@ -1,4 +1,6 @@
 read (x);
-read (y);
-z := x*y*3;
+foreach x in [0...5]
+do
+z := x+3;
+od
 write (z)
