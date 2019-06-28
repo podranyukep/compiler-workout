@@ -55,9 +55,9 @@ let rec eval env conf prog = match prog with
             | "z"  -> (match st with
                 | z::st' -> if z <> 0 then (eval env (st', rem) tail) else (eval env (st', rem) (env#labeled l))
                 | []     -> failwith "CJMP with empty stack")
-                | "nz" -> (match st with
-                    | z::st' -> if z <> 0 then (eval env (st', rem) (env#labeled l)) else (eval env (st', rem) tail)
-                    | []     -> failwith "CJMP with empty stack"))
+            | "nz" -> (match st with
+                | z::st' -> if z <> 0 then (eval env (st', rem) (env#labeled l)) else (eval env (st', rem) tail)
+                | []     -> failwith "CJMP with empty stack"))
         | _                 -> eval env (instructionEval conf instr) tail)
         | []                -> conf  
 
@@ -119,6 +119,13 @@ let rec compileWithLabels p lastL =
             let lLoop = labelGen#get in
             let (repeatBody, _) = compileWithLabels body lastL in
                 ([LABEL lLoop] @ repeatBody @ expr e @ [CJMP ("z", lLoop)]), false
+        | Stmt.ForEach (x, e1, e2, body) ->
+            let x = e1 in
+            let lLoop = labelGen#get in
+            let lIncr = labelGen#get in
+            let (doBody, _) = compileWithLabels body lIncr in
+                ([LABEL lLoop] @ expr x>e1 @ CJMP("z", lastL) @ expr x<e2 @ CJMP("z", lastL)
+                @ doBody @ [LABEL lIncr] @ method x+1 @ JMP lLoop), false
         | Stmt.Skip -> [], false
 
 let rec compile p =
