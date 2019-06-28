@@ -123,9 +123,10 @@ let rec compileWithLabels p lastL =
             let x = e1 in
             let lLoop = labelGen#get in
             let lIncr = labelGen#get in
+            let lQuit = labelGen#get in
             let (doBody, _) = compileWithLabels body lIncr in
-                ([LABEL lLoop] @ expr x @ expr e1 @ [BINOP ">="] @ [CJMP("z", lastL)] @ expr x @ expr e1 @ [BINOP "<="] @ [CJMP("z", lastL)]
-                @ doBody @ [LABEL lIncr] @ expr x @ [CONST 1] @ [BINOP "+"] @ [JMP lLoop]), false
+                ([LABEL lLoop] @ expr x @ expr e1 @ [BINOP ">="] @ [CJMP("z", lQuit)] @ expr x @ expr e1 @ [BINOP "<="] @ [CJMP("z", lQuit)]
+                @ doBody @ [LABEL lIncr] @ expr x @ [CONST 1] @ [BINOP "+"] @ [JMP lLoop] @ [LABEL lQuit]), false
         | Stmt.Skip -> [], false
 
 let rec compile p =
