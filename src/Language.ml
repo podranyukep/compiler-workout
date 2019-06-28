@@ -165,6 +165,9 @@ module Stmt =
         "do" body:parse "od" {Seq (initStmt, While (whileCond, Seq (body, forStmt)))};
       repeatUntilStmt:
         "repeat" body:parse "until" e:!(Expr.expr) {RepeatUntil (body, e)};
+      foreach:
+        "foreach" x:!(Expr.expr) "in [" e1:!(Expr.expr) "..." e2:!(Expr.expr) "]" 
+        "do" body:parse "od" {ForEach(x, e1, e2, body)};
       control:
         ifStmt
         | whileStmt
