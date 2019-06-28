@@ -1,20 +1,20 @@
-open GT       
+open GT
 open Language
 open List
-       
+
 (* The type for the stack machine instructions *)
 @type insn =
 (* binary operator                 *) | BINOP of string
-(* put a constant on the stack     *) | CONST of int                 
+(* put a constant on the stack     *) | CONST of int
 (* read to stack                   *) | READ
 (* write from stack                *) | WRITE
 (* load a variable to the stack    *) | LD    of string
 (* store a variable from the stack *) | ST    of string
 (* a label                         *) | LABEL of string
-(* unconditional jump              *) | JMP   of string                                                                                                                
+(* unconditional jump              *) | JMP   of string
 (* conditional jump                *) | CJMP  of string * string with show
-                                                   
-(* The type for the stack machine program *)                                                               
+
+(* The type for the stack machine program *)
 type prg = insn list
 
 (* The type for the stack machine configuration: a stack and a configuration from statement
@@ -28,7 +28,7 @@ type config = int list * Stmt.config
 
    Takes an environment, a configuration and a program, and returns a configuration as a result. The
    environment is used to locate a label to jump to (via method env#labeled <label_name>)
-*) 
+*)
 
 let instructionEval (stack, (s, i, o)) instruction = match instruction with
     | BINOP op -> (match stack with
@@ -46,7 +46,7 @@ let instructionEval (stack, (s, i, o)) instruction = match instruction with
         | z :: tail -> (tail, (Language.Expr.update x z s, i, o))
         | _         -> failwith "Not enough elements in stack")
     | LABEL l  ->  (stack, (s, i, o))
-                        
+
 let rec eval env conf prog = match prog with
     | instr::tail -> (match instr with
         | LABEL l        -> eval env conf tail
@@ -59,7 +59,7 @@ let rec eval env conf prog = match prog with
                 | z::st' -> if z <> 0 then (eval env (st', rem) (env#labeled l)) else (eval env (st', rem) tail)
                 | []     -> failwith "CJMP with empty stack"))
         | _                 -> eval env (instructionEval conf instr) tail)
-        | []                -> conf  
+        | []                -> conf
 
 (* Top-level evaluation
 
@@ -124,8 +124,8 @@ let rec compileWithLabels p lastL =
             let lLoop = labelGen#get in
             let lIncr = labelGen#get in
             let (doBody, _) = compileWithLabels body lIncr in
-                ([LABEL lLoop] @ expr x>e1 @ CJMP("z", lastL) @ expr x<e2 @ CJMP("z", lastL)
-                @ doBody @ [LABEL lIncr] @ method x+1 @ JMP lLoop), false
+                ([LABEL lLoop] @ expr x @ expr e1 @ [BINOP ">="] @ [CJMP("z", lastL)] @ expr x @ expr e1 @ [BINOP "<="] @ [CJMP("z", lastL)]
+                @ doBody @ [LABEL lIncr] @ expr x @ [CONST 1] @ [BINOP "+"] @ [JMP lLoop]), false
         | Stmt.Skip -> [], false
 
 let rec compile p =
