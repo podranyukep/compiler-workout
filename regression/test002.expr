@@ -1,0 +1,11 @@
+
+read (x);
+foreach x in
+[
+0...
+5
+]
+do
+	z := x*3;
+od
+write (z)
