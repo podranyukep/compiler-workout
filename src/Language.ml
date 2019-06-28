@@ -115,8 +115,9 @@ module Stmt =
     (* empty statement                  *) | Skip
     (* conditional                      *) | If     of Expr.t * t * t
     (* loop with a pre-condition        *) | While  of Expr.t * t
-    (* loop with a post-condition       *) | RepeatUntil    of t * Expr.t with show
-                                                                    
+    (* loop with a post-condition       *) | RepeatUntil    of t * Expr.t
+    (* foreach                          *) | ForEach    of Expr.t * Expr.t * Expr.t * t with show
+
     (* The type of configuration: a state, an input stream, an output stream *)
     type config = Expr.state * int list * int list 
 
@@ -138,6 +139,7 @@ module Stmt =
             | Skip                              -> (s, i, o)
             | If (e, thenStmt, elseStmt)        -> eval (s, i, o) (if Expr.intToBool (Expr.eval s e) then thenStmt else elseStmt)
             | While (e, wStmt)                  -> if Expr.intToBool (Expr.eval s e) then eval (eval (s, i, o) wStmt) stmt else (s, i, o)
+            | ForEach (x, e1, e2, b)            -> if (eval(e1) < eval(e2))  if Expr.intToBool (Expr.eval s e) then eval (eval (s, i, o) wStmt) stmt else (s, i, o)
             | RepeatUntil (ruStmt, e)           -> let (sNew, iNew, oNew) = eval (s, i, o) ruStmt in
             if not (Expr.intToBool (Expr.eval sNew e)) then eval (sNew, iNew, oNew) stmt else (sNew, iNew, oNew);;
                                
