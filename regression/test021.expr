@@ -1,11 +1,10 @@
 read (n);
 f := 1;
-limit := n-1;
+limit := n;
 
 foreach n in [1...limit]
 do
-  f := f * n;
-  write (f)
+  f := f * n
 od;
 
 write (f)
