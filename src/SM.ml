@@ -17,6 +17,8 @@ open List
 (* The type for the stack machine program *)
 type prg = insn list
 
+let print_prg p = List.iter (fun i -> Printf.printf "%s\n" (show(insn) i)) p
+
 (* The type for the stack machine configuration: a stack and a configuration from statement
    interpreter
  *)
@@ -68,6 +70,7 @@ let rec eval env conf prog = match prog with
    Takes a program, an input stream, and returns an output stream this program calculates
 *)
 let run p i =
+  print_prg p;
   let module M = Map.Make (String) in
   let rec make_map m = function
   | []              -> m
