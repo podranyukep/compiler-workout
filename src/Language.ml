@@ -135,15 +135,17 @@ module Stmt =
                 | z :: i_rest -> (Expr.update x z s, i_rest, o)
                 | _           -> failwith "Input read fail")
             | Write   e             -> (s, i, o @ [Expr.eval s e])
-            | Assign (x, e)         -> (Expr.update x (Expr.eval s e) s, i, o)
+            | Assign (x, e)         -> (failwith "I\'m here"; Expr.update x (Expr.eval s e) s, i, o)
             | Seq    (s1, s2) -> eval (eval conf s1) s2
             | Skip                              -> (s, i, o)
             | If (e, thenStmt, elseStmt)        -> eval (s, i, o) (if Expr.intToBool (Expr.eval s e) then thenStmt else elseStmt)
             | While (e, wStmt)                  -> if Expr.intToBool (Expr.eval s e) then eval (eval (s, i, o) wStmt) stmt else (s, i, o)
             | ForEach (x, e1, e2, b)            -> 
+			failwith "I\'m here";
 			let e1 = Expr.eval s e1 in
 			let e2 = Expr.eval s e2 in
 			if e1 <= e2 then (*Expr.update x e1 s, i, o*)
+			failwith "I\'m here"
 			eval (eval (s, i, o) b) stmt else (s, i, o)
 			(*if Expr.eval s e1 <= Expr.eval s e2 then 
 			Expr.update x (Expr.eval s e1) s, i, o*)
@@ -177,17 +179,17 @@ module Stmt =
 		};
       repeatUntilStmt:
         "repeat" body:parse "until" e:!(Expr.expr) {RepeatUntil (body, e)};
-      foreach:
+      (*foreach:
         "foreach" x:!(Expr.variable) "in" "[" e1:!(Expr.expr) "..." e2:!(Expr.expr) "]" 
         "do" body:parse "od" {
 			ForEach(x, e1, e2, body);
-		};
+		};*)
       control:
         ifStmt
         | whileStmt
         | forStmt
         | repeatUntilStmt
-		| foreach
+		(*| foreach*)
         | "skip" {Skip};
       stmt:
         simple
