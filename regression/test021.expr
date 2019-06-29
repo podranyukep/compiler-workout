@@ -4,8 +4,7 @@ i := 1;
 
 foreach i in [1...n]
 do
-  f := f * i;
-  write(f)
+  f := f * i
 od;
 
 write (f)
