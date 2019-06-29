@@ -97,7 +97,8 @@ module Expr =
             )
             primary
             );
-        primary: x:IDENT {Var x} | c:DECIMAL {Const c} | -"(" expr -")"
+        primary: variable | c:DECIMAL {Const c} | -"(" expr -")";
+		variable: x:IDENT {Var x}
     )
     
   end
@@ -139,9 +140,13 @@ module Stmt =
             | Skip                              -> (s, i, o)
             | If (e, thenStmt, elseStmt)        -> eval (s, i, o) (if Expr.intToBool (Expr.eval s e) then thenStmt else elseStmt)
             | While (e, wStmt)                  -> if Expr.intToBool (Expr.eval s e) then eval (eval (s, i, o) wStmt) stmt else (s, i, o)
-            | ForEach (x, e1, e2, b)            -> if Expr.eval s e1 <= Expr.eval s e2 then 
-			(*Expr.update x (Expr.eval s e1) s, i, o*)
+            | ForEach (x, e1, e2, b)            -> 
+			let e1 = Expr.eval s e1 in
+			let e2 = Expr.eval s e2 in
+			if e1 <= e2 then (*Expr.update x e1 s, i, o*)
 			eval (eval (s, i, o) b) stmt else (s, i, o)
+			(*if Expr.eval s e1 <= Expr.eval s e2 then 
+			Expr.update x (Expr.eval s e1) s, i, o*)
             | RepeatUntil (ruStmt, e)           -> let (sNew, iNew, oNew) = eval (s, i, o) ruStmt in
             if not (Expr.intToBool (Expr.eval sNew e)) then eval (sNew, iNew, oNew) stmt else (sNew, iNew, oNew);;
                                
@@ -173,7 +178,7 @@ module Stmt =
       repeatUntilStmt:
         "repeat" body:parse "until" e:!(Expr.expr) {RepeatUntil (body, e)};
       foreach:
-        "foreach" x:!(Expr.expr) "in [" e1:!(Expr.expr) "..." e2:!(Expr.expr) "]" 
+        "foreach" x:!(Expr.variable) "in" "[" e1:!(Expr.expr) "..." e2:!(Expr.expr) "]" 
         "do" body:parse "od" {
 			ForEach(x, e1, e2, body);
 		};
