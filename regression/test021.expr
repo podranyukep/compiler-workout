@@ -1,7 +1,8 @@
 read (n);
 f := 1;
+limit := n-1;
 
-for skip, n >= 1, n := n-1
+foreach n in [1...limit]
 do
   f := f * n
 od;
