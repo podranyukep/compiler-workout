@@ -4,7 +4,8 @@ limit := n-1;
 
 foreach n in [1...limit]
 do
-  f := f * n
+  f := f * n;
+  write (f)
 od;
 
 write (f)
