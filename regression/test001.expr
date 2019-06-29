@@ -1,1 +1,10 @@
+read (x);
+i := 0;
+fib  := 1;
 
+foreach i in [2...x]
+do
+      fib   := fib + i
+od;
+
+write (fib)
