@@ -179,17 +179,17 @@ module Stmt =
 		};
       repeatUntilStmt:
         "repeat" body:parse "until" e:!(Expr.expr) {RepeatUntil (body, e)};
-      (*foreach:
+      foreach:
         "foreach" x:!(Expr.variable) "in" "[" e1:!(Expr.expr) "..." e2:!(Expr.expr) "]" 
         "do" body:parse "od" {
 			ForEach(x, e1, e2, body);
-		};*)
+		};
       control:
         ifStmt
         | whileStmt
         | forStmt
         | repeatUntilStmt
-		(*| foreach*)
+		| foreach
         | "skip" {Skip};
       stmt:
         simple

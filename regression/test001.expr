@@ -1,4 +1,9 @@
+fib   := 1;
+i := 5;
 
-x := 10;
-z := 85;
-write(8)
+foreach i in [2...5]
+do
+      fib   := fib + i
+od;
+
+write (fib)
