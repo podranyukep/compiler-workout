@@ -117,7 +117,7 @@ module Stmt =
     (* conditional                      *) | If     of Expr.t * t * t
     (* loop with a pre-condition        *) | While  of Expr.t * t
     (* loop with a post-condition       *) | RepeatUntil    of t * Expr.t
-    (* foreach                          *) | ForEach    of Expr.t * Expr.t * Expr.t * t with show
+    (* foreach                          *) | ForEach    of string * Expr.t * Expr.t * t with show
 
     (* The type of configuration: a state, an input stream, an output stream *)
     type config = Expr.state * int list * int list 
@@ -180,7 +180,7 @@ module Stmt =
       repeatUntilStmt:
         "repeat" body:parse "until" e:!(Expr.expr) {RepeatUntil (body, e)};
       foreach:
-        "foreach" x:!(Expr.variable) "in" "[" e1:!(Expr.expr) "..." e2:!(Expr.expr) "]" 
+        "foreach" x:IDENT "in" "[" e1:!(Expr.expr) "..." e2:!(Expr.expr) "]" 
         "do" body:parse "od" {
 			ForEach(x, e1, e2, body);
 		};
