@@ -1,10 +1,1 @@
-read(n);
-fib   := 1;
-i := 5;
 
-foreach i in [2...5]
-do
-      fib   := fib + i
-od;
-
-write (fib)
