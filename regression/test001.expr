@@ -1,4 +1,11 @@
 read (x);
 read (y);
-z := x*y*3;
-write (z)
+f := 1;
+i := 1;
+
+foreach i in [1...n]
+do
+  f := f * i
+od;
+
+write (f)
