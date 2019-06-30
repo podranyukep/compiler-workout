@@ -1,12 +1,4 @@
 read (x);
 read (y);
-f := 1;
-i := 1;
-n := 9;
-
-foreach i in [1...10]
-do
-  f := n * i
-od;
-
-write (f)
+z := x*y*3;
+write (z)
