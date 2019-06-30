@@ -70,7 +70,7 @@ let rec eval env conf prog = match prog with
    Takes a program, an input stream, and returns an output stream this program calculates
 *)
 let run p i =
-  (*print_prg p;*)
+  print_prg p;
   let module M = Map.Make (String) in
   let rec make_map m = function
   | []              -> m
