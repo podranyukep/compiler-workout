@@ -125,8 +125,8 @@ let rec compileWithLabels p lastL =
         | Stmt.ForEach (x, e1, e2, body) ->
             let lLoop = labelGen#get in
             let lIncr = labelGen#get in
-            let lQuit = labelGen#get in
 			let lCheck = labelGen#get in
+            let lQuit = labelGen#get in
             let (doBody, _) = compileWithLabels body lIncr in
                 ((expr e1 @ [ST x]) @ [JMP lCheck; LABEL lLoop] @ doBody @ [LABEL lIncr] @ [CONST 1; LD x; BINOP "+"; ST x] @
 				[LABEL lCheck] @ [LD x] @ expr e1 @ [BINOP ">="; CJMP("z", lQuit); LD x] @ expr e2 @ [BINOP "<="; CJMP("nz", lLoop)] @ [LABEL lQuit]), false
