@@ -2,11 +2,11 @@ read (x);
 read (y);
 f := 1;
 i := 1;
-n := 10;
+n := 9;
 
-foreach i in [1...n]
+foreach i in [1...10]
 do
-  f := f * i
+  f := n * i
 od;
 
 write (f)
