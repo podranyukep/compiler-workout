@@ -4,7 +4,7 @@ fib_1 := 1;
 fib_2 := 1;
 fib   := 1;
 
-foreach i in [2...n-1]
+foreach i in [2...1]
 do
       fib   := fib_1 + fib_2;
       fib_2 := fib_1;
